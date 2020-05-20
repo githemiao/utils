@@ -11,15 +11,14 @@ EventHandler::EventHandler() :
     event_waiting_(false)
 {
     keep_running_ = true;
+    event_finish_ = false;
     loop_thread_ = std::thread(Worker(this));
 }
 
 EventHandler::~EventHandler()
 {
     exit();
-    if (loop_thread_.joinable()) {
-        loop_thread_.join();
-    }
+    wait();
 }
 
 int EventHandler::exit()
@@ -27,6 +26,11 @@ int EventHandler::exit()
     keep_running_ = false;
     cond_.notify_all();
 
+    return 0;
+}
+
+int EventHandler::finish() {
+    event_finish_ = true;
     return 0;
 }
 
@@ -51,6 +55,10 @@ int EventHandler::postEvent(const Event &evt, int64_t delayms)
 {
     Autolock lock(mutex_);
 
+    if (event_finish_) {
+        return -1;
+    }
+
     auto timeout = now_in_msec(STEADY_CLOCK) + delayms;
     event_list_.push_back({ evt, timeout });
     event_list_.sort(event_compare);
@@ -67,8 +75,12 @@ void EventHandler::loop()
 
         lock.lock();
         if (event_list_.empty()) {
-            event_waiting_ = true;
-            cond_.wait(lock);
+            if (event_finish_) {
+                keep_running_ = false;
+            } else {
+                event_waiting_ = true;
+                cond_.wait(lock);
+            }
         }
 
         if (!event_list_.empty()) {

@@ -5,7 +5,8 @@
 #include <mutex>
 #include <condition_variable>
 #include <thread>
-#include <chrono>
+// #include <chrono>
+#include <functional>
 
 struct Event {
     Event(int w) : what(w), userdata(nullptr) { }
@@ -15,7 +16,6 @@ struct Event {
     void *userdata;
 };
 
-using std::chrono::steady_clock;
 typedef std::pair<Event, int64_t> EventItem;
 
 class EventHandler {
@@ -24,6 +24,7 @@ public:
     virtual ~EventHandler();
 
     int exit();
+    int finish();
     int wait();
     int postEvent(const Event &evt, int64_t delayms = 0);
     virtual void handleEvent(const Event &evt) = 0;
@@ -39,6 +40,7 @@ private:
     };
     friend struct Worker;
 
+    bool event_finish_;
     bool keep_running_;
     bool event_waiting_;
     std::mutex mutex_;
@@ -47,14 +49,13 @@ private:
     std::list<EventItem> event_list_;
 };
 
-template <typename T>
 class UserHandler : public EventHandler {
 public:
-    UserHandler(T *p) : user(p) { }
-    void handleEvent(const Event &evt) override { user->handleEvent(evt); }
+    UserHandler(std::function<void(const Event &evt)> fn) : handler_(fn) { }
+    void handleEvent(const Event &evt) override { handler_(evt); }
 
 private:
-    T * user;
+    std::function<void(const Event &evt)> handler_;
 };
 
 #endif //EVENT_HANDLER_H
